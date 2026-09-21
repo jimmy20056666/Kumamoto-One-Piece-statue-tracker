@@ -57,6 +57,7 @@
 ---
 
 <!-- STREAMING_CHUNK:Writing setup and HTTPS warnings... -->
+網頁入口
 https://jimmy20056666.github.io/Kumamoto-One-Piece-statue-tracker/
 ---
 
