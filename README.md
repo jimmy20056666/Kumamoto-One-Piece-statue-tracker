@@ -57,21 +57,7 @@
 ---
 
 <!-- STREAMING_CHUNK:Writing setup and HTTPS warnings... -->
-## 🚀 部署與手機使用說明 (重要)
-
-⚠️ **為什麼手機無法取得 GPS 定位？**
-現代手機瀏覽器（iOS Safari / Android Chrome）出於安全性考慮，**強制規定 Geolocation (GPS) API 必須在安全連線 (`https://`) 下才能運作**。
-若直接將 `.html` 檔案下載到手機本機開啟 (`file:///...`)，手機會自動封鎖定位功能。
-
-### 建議部署方式 (免費且快速)：
-
-1. **GitHub Pages (推薦)**
-   - 將 `index.html` 上傳至 GitHub 儲存庫 (Repository)。
-   - 在 Settings -> Pages 開啟 GitHub Pages，幾秒後即可獲得免費的 `https://your-name.github.io/repository-name` 網址。
-
-2. **Vercel / Netlify**
-   - 將檔案拖曳上傳至 [Vercel](https://vercel.com/) 或 [Netlify](https://www.netlify.com/)，即可獲得 HTTPS 網址。
-
+https://jimmy20056666.github.io/Kumamoto-One-Piece-statue-tracker/
 ---
 
 <!-- STREAMING_CHUNK:Writing tech stack and architecture section... -->
