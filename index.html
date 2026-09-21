@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>熊本 ONE PIECE 銅像收集記錄</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* 防止整個頁面滾動，僅允許底部列表滾動 */
+        }
+
+        /* 隱藏滾動條但保留功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Leaflet 地圖暗黑模式 Popup 覆寫 */
+        .leaflet-popup-content-wrapper {
+            background: #1f2937; /* Tailwind gray-800 */
+            color: #f3f4f6; /* Tailwind gray-100 */
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+        .leaflet-popup-tip {
+            background: #1f2937;
+        }
+        .leaflet-popup-content {
+            margin: 16px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* 自訂銅像標記樣式 */
+        .statue-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            border-radius: 50%;
+            background-color: #374151; /* gray-700 */
+            border: 2px solid #9ca3af; /* gray-400 */
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .statue-marker.visited {
+            background-color: #fbbf24; /* amber-400 */
+            border: 2px solid #f59e0b; /* amber-500 */
+            box-shadow: 0 0 15px rgba(251, 191, 36, 0.6);
+            transform: scale(1.1);
+        }
+        .statue-marker.unvisited {
+            filter: grayscale(100%);
+            opacity: 0.7;
+        }
+
+        /* 使用者位置標記動畫 */
+        .user-marker {
+            width: 16px;
+            height: 16px;
+            background-color: #3b82f6;
+            border-radius: 50%;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 0 rgba(59, 130, 246, 0.4);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        /* 底部抽屜動畫 */
+        #bottom-sheet {
+            transition: transform 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+    <!-- 歡迎與授權畫面 (用於解鎖音效與 GPS) -->
+    <div id="welcome-screen" class="absolute inset-0 z-50 bg-gray-900 flex flex-col items-center justify-center p-6 text-center">
+        <div class="text-6xl mb-4">🏴‍☠️</div>
+        <h1 class="text-3xl font-bold text-amber-400 mb-2">熊本 ONE PIECE</h1>
+        <h2 class="text-xl font-semibold text-gray-200 mb-8">銅像收集記錄</h2>
+        <p class="text-gray-400 mb-8 max-w-sm">
+            此應用程式需要使用您的 <b>GPS 位置</b> 來追蹤銅像進度。當您接近未收集的銅像時（100公尺內），系統將自動發出提示音並記錄。
+        </p>
+        <button id="start-btn" class="bg-amber-500 hover:bg-amber-600 text-gray-900 font-bold py-3 px-8 rounded-full shadow-lg transform transition active:scale-95 text-lg">
+            開始尋寶旅程
+        </button>
+    </div>
+
+    <!-- 主要應用程式介面 (初始隱藏) -->
+    <div id="app-content" class="hidden flex-col h-full w-full relative">
+        
+        <!-- 頂部標題列 -->
+        <header class="bg-gray-800 shadow-md p-4 flex justify-between items-center z-10 relative">
+            <h1 class="text-lg font-bold text-amber-400 flex items-center gap-2">
+                <span>☠️</span> 銅像尋寶圖
+            </h1>
+            <div id="progress-text" class="text-sm font-semibold bg-gray-700 px-3 py-1 rounded-full">
+                0 / 10
+            </div>
+        </header>
+
+        <!-- 進度條 -->
+        <div class="h-1 w-full bg-gray-700 z-10 relative">
+            <div id="progress-bar" class="h-full bg-amber-400 transition-all duration-500" style="width: 0%;"></div>
+        </div>
+
+        <!-- 地圖容器 -->
+        <div id="map" class="flex-grow w-full z-0 relative"></div>
+
+        <!-- 底部列表面板 -->
+        <div id="bottom-sheet" class="bg-gray-800 rounded-t-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.5)] z-20 flex flex-col relative transition-all duration-300 ease-in-out" style="height: 35%;">
+            <!-- 加入 sheet-header 作為點擊/滑動區域 -->
+            <div id="sheet-header" class="cursor-pointer select-none pb-2 border-b border-gray-700">
+                <div class="flex justify-center pt-3 pb-2 w-full" id="drag-handle">
+                    <div class="w-12 h-1.5 bg-gray-600 rounded-full"></div>
+                </div>
+                <div class="px-4 flex justify-between items-center">
+                    <h2 class="text-lg font-bold">收集清單</h2>
+                    <span id="expand-icon" class="text-gray-400 text-sm font-semibold tracking-wider">▲ 展開</span>
+                </div>
+            </div>
+            
+            <!-- 銅像列表 -->
+            <div id="statue-list" class="flex-grow overflow-y-auto no-scrollbar p-4 space-y-3">
+                <!-- 列表項目將由 JS 動態生成 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 成功抵達提示彈窗 (隱藏) -->
+    <div id="success-modal" class="hidden absolute inset-0 z-[100] bg-black bg-opacity-80 flex items-center justify-center p-4">
+        <div class="bg-gray-800 border border-amber-500 rounded-2xl p-6 text-center max-w-sm w-full transform scale-95 transition-transform duration-300 shadow-2xl">
+            <div class="text-6xl mb-4" id="modal-emoji">🎉</div>
+            <h2 class="text-2xl font-bold text-amber-400 mb-2">成功抵達！</h2>
+            <p class="text-gray-300 mb-6">您已找到 <span id="modal-statue-name" class="font-bold text-white"></span> 的銅像！</p>
+            <button onclick="closeModal()" class="w-full bg-amber-500 text-gray-900 font-bold py-3 rounded-xl hover:bg-amber-600 transition">
+                繼續尋寶
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // 銅像資料 (包含精確的經緯度與 emoji)
+        const statues = [
+            { id: 'luffy', name: '魯夫 (Luffy)', role: '船長', location: '熊本縣廳', lat: 32.78985, lng: 130.74167, emoji: '🍖' },
+            { id: 'chopper', name: '喬巴 (Chopper)', role: '船醫', location: '熊本市動植物園', lat: 32.77583, lng: 130.75333, emoji: '🦌' },
+            { id: 'brook', name: '布魯克 (Brook)', role: '音樂家', location: '御船町恐龍博物館', lat: 32.79461, lng: 130.79811, emoji: '💀' },
+            { id: 'sanji', name: '香吉士 (Sanji)', role: '廚師', location: '益城町交流資訊中心', lat: 32.78850, lng: 130.81111, emoji: '🍳' },
+            { id: 'zoro', name: '索隆 (Zoro)', role: '劍士', location: '大津中央公園', lat: 32.88044, lng: 130.87111, emoji: '⚔️' },
+            { id: 'nami', name: '娜美 (Nami)', role: '航海士', location: '西原村 萌之里', lat: 32.81972, lng: 130.93333, emoji: '🍊' },
+            { id: 'robin', name: '羅賓 (Robin)', role: '考古學家', location: '東海大學阿蘇校區', lat: 32.88278, lng: 130.99028, emoji: '📖' },
+            { id: 'usopp', name: '騙人布 (Usopp)', role: '狙擊手', location: '阿蘇車站', lat: 32.93778, lng: 131.08056, emoji: '🎯' },
+            { id: 'franky', name: '佛朗基 (Franky)', role: '船匠', location: '高森車站', lat: 32.82100, lng: 131.11890, emoji: '🤖' },
+            { id: 'jinbe', name: '吉貝爾 (Jinbe)', role: '掌舵手', location: '住吉海岸公園', lat: 32.69333, lng: 130.60333, emoji: '🦈' }
+        ];
+
+        // 狀態管理
+        let visitedStatues = JSON.parse(localStorage.getItem('visitedOnePieceStatues')) || [];
+        let map;
+        let userMarker;
+        let watchId;
+        let markers = {}; 
+        let audioCtx;
+        let isFirstLocationFix = true; // 新增變數記錄是否為首次定位
+
+        // 觸發距離 (100 公尺 = 0.1 公里)
+        const ARRIVAL_THRESHOLD_KM = 0.1;
+
+        // DOM 元素
+        const startBtn = document.getElementById('start-btn');
+        const welcomeScreen = document.getElementById('welcome-screen');
+        const appContent = document.getElementById('app-content');
+        const statueListEl = document.getElementById('statue-list');
+        const progressText = document.getElementById('progress-text');
+        const progressBar = document.getElementById('progressBar');
+        const successModal = document.getElementById('success-modal');
+
+        // 初始化 Web Audio API (需由使用者互動觸發)
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // 播放成功提示音 (使用合成器產生清脆和弦，無須外部檔案)
+        function playSuccessSound() {
+            if (!audioCtx) return;
+            
+            const osc1 = audioCtx.createOscillator();
+            const osc2 = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            osc1.connect(gainNode);
+            osc2.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc1.type = 'sine';
+            osc2.type = 'triangle';
+            
+            const now = audioCtx.currentTime;
+            
+            // 琶音和弦音效
+            osc1.frequency.setValueAtTime(523.25, now); // C5
+            osc1.frequency.setValueAtTime(659.25, now + 0.1); // E5
+            osc1.frequency.setValueAtTime(783.99, now + 0.2); // G5
+            osc1.frequency.setValueAtTime(1046.50, now + 0.3); // C6
+            
+            osc2.frequency.setValueAtTime(261.63, now); // C4 (增加厚度)
+            osc2.frequency.setValueAtTime(1046.50, now + 0.3); 
+
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+            
+            osc1.start(now);
+            osc2.start(now);
+            osc1.stop(now + 1.5);
+            osc2.stop(now + 1.5);
+        }
+
+        // Haversine 距離計算 (回傳公里)
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function initMap() {
+            // 熊本市中心為初始中心點
+            map = L.map('map', { zoomControl: false }).setView([32.79, 130.74], 10);
+            
+            // 加入自訂位置的縮放控制
+            L.control.zoom({ position: 'topright' }).addTo(map);
+
+            // 加入「顯示目前位置」定位按鈕到地圖上
+            const locateControl = L.control({position: 'topright'});
+            locateControl.onAdd = function(map) {
+                const btn = L.DomUtil.create('button', 'bg-white text-gray-800 p-2 rounded shadow-md mt-2 hover:bg-gray-100 transition');
+                btn.innerHTML = '📍';
+                btn.title = '顯示目前位置';
+                btn.style.width = '34px';
+                btn.style.height = '34px';
+                btn.style.display = 'flex';
+                btn.style.alignItems = 'center';
+                btn.style.justifyContent = 'center';
+                btn.style.fontSize = '18px';
+                btn.style.border = '2px solid rgba(0,0,0,0.2)';
+                btn.style.backgroundClip = 'padding-box';
+                btn.onclick = function(e) {
+                    e.stopPropagation();
+                    if (userMarker) {
+                        map.flyTo(userMarker.getLatLng(), 15, { duration: 1 });
+                    } else {
+                        let msg = "尚未取得您的位置。\n\n1. 請確認手機已開啟 GPS 並允許權限。\n2. 若您是直接點開本地檔案 (file://)，手機瀏覽器會基於安全考量阻擋 GPS。請上傳至網站伺服器 (https) 使用。";
+                        if (window.lastGpsError) msg += "\n\n錯誤原因: " + window.lastGpsError;
+                        alert(msg);
+                    }
+                };
+                return btn;
+            };
+            locateControl.addTo(map);
+
+            // 使用明亮模式地圖圖層 (CartoDB Voyager)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                maxZoom: 19
+            }).addTo(map);
+
+            // 繪製所有銅像標記
+            statues.forEach(statue => {
+                const isVisited = visitedStatues.includes(statue.id);
+                
+                // 建立自訂 Icon
+                const icon = L.divIcon({
+                    className: '', // 清除預設 class
+                    html: `<div class="statue-marker ${isVisited ? 'visited' : 'unvisited'} w-10 h-10">${statue.emoji}</div>`,
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 20],
+                    popupAnchor: [0, -20]
+                });
+
+                const marker = L.marker([statue.lat, statue.lng], { icon: icon }).addTo(map);
+                markers[statue.id] = marker;
+
+                // 綁定 Popup 資訊視窗
+                bindPopupContent(statue, marker, isVisited);
+            });
+        }
+
+        function bindPopupContent(statue, marker, isVisited) {
+            // Google Maps 導航連結
+            const gmapsLink = `https://www.google.com/maps/search/?api=1&query=${statue.lat},${statue.lng}`;
+            
+            // 根據是否已到達，顯示對應的按鈕
+            const actionBtnHTML = isVisited ? 
+                `<button onclick="undoArrival('${statue.id}')" class="mt-2 w-full bg-red-900 hover:bg-red-800 border border-red-700 text-xs text-red-200 py-1.5 rounded transition">↩️ 取消到達</button>` : 
+                `<button onclick="simulateArrival('${statue.id}')" class="mt-2 w-full bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 py-1.5 rounded transition">測試用：模擬到達</button>`;
+
+            const popupHTML = `
+                <div class="text-center">
+                    <div class="text-2xl mb-1">${statue.emoji}</div>
+                    <h3 class="font-bold text-lg text-amber-400 m-0">${statue.name}</h3>
+                    <p class="text-xs text-gray-400 mb-2">職位: ${statue.role} | 地點: ${statue.location}</p>
+                    <div class="mt-1 mb-2 font-bold ${isVisited ? 'text-green-400' : 'text-gray-500'}">
+                        ${isVisited ? '✅ 已收集' : '❌ 未收集'}
+                    </div>
+                    <a href="${gmapsLink}" target="_blank" class="block w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded text-sm no-underline mb-1">
+                        🗺️ 在 Google Maps 開啟
+                    </a>
+                    ${actionBtnHTML}
+                </div>
+            `;
+            marker.bindPopup(popupHTML);
+        }
+
+        function startTracking() {
+            if (!navigator.geolocation) {
+                alert("您的瀏覽器不支援 GPS 定位功能。");
+                return;
+            }
+
+            // 監聽位置變化
+            watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const userLat = position.coords.latitude;
+                    const userLng = position.coords.longitude;
+
+                    // 更新或創建使用者位置標記 (發光的藍點)
+                    if (userMarker) {
+                        userMarker.setLatLng([userLat, userLng]);
+                    } else {
+                        const userIcon = L.divIcon({
+                            className: '',
+                            html: '<div class="user-marker"></div>',
+                            iconSize: [16, 16],
+                            iconAnchor: [8, 8]
+                        });
+                        userMarker = L.marker([userLat, userLng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+                    }
+
+                    // 第一次取得位置時，自動平移並縮放至使用者的目前位置
+                    if (isFirstLocationFix) {
+                        map.flyTo([userLat, userLng], 12, { duration: 1.5 });
+                        isFirstLocationFix = false;
+                    }
+
+                    // 檢查是否接近任何未訪問的銅像
+                    checkProximity(userLat, userLng);
+                },
+                (error) => {
+                    console.warn("GPS Error:", error);
+                    let errorMsg = "無法取得位置。";
+                    if (error.code === error.PERMISSION_DENIED) errorMsg = "使用者拒絕提供位置權限。";
+                    if (error.code === error.POSITION_UNAVAILABLE) errorMsg = "無法獲取定位資訊(可能收不到訊號)。";
+                    if (error.code === error.TIMEOUT) errorMsg = "取得位置逾時。";
+                    window.lastGpsError = errorMsg;
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 10000,
+                    timeout: 5000
+                }
+            );
+        }
+
+        function checkProximity(userLat, userLng) {
+            statues.forEach(statue => {
+                if (!visitedStatues.includes(statue.id)) {
+                    const dist = getDistance(userLat, userLng, statue.lat, statue.lng);
+                    if (dist <= ARRIVAL_THRESHOLD_KM) {
+                        handleArrival(statue);
+                    }
+                }
+            });
+        }
+
+        // 處理抵達事件
+        function handleArrival(statue) {
+            // 記錄狀態
+            visitedStatues.push(statue.id);
+            localStorage.setItem('visitedOnePieceStatues', JSON.stringify(visitedStatues));
+
+            // 播放音效
+            playSuccessSound();
+
+            // 更新地圖標記樣式與 Popup
+            const marker = markers[statue.id];
+            const icon = L.divIcon({
+                className: '',
+                html: `<div class="statue-marker visited w-10 h-10">${statue.emoji}</div>`,
+                iconSize: [40, 40],
+                iconAnchor: [20, 20],
+                popupAnchor: [0, -20]
+            });
+            marker.setIcon(icon);
+            bindPopupContent(statue, marker, true);
+
+            // 重新渲染 UI 列表
+            renderList();
+
+            // 顯示慶祝彈窗
+            showModal(statue);
+        }
+
+        // 提供給 Popup 的手動模擬測試函式
+        window.simulateArrival = function(statueId) {
+            const statue = statues.find(s => s.id === statueId);
+            if (statue && !visitedStatues.includes(statue.id)) {
+                // 關閉當前 popup 以免 UI 錯誤
+                map.closePopup();
+                handleArrival(statue);
+            }
+        };
+
+        // 提供給 Popup 的取消到達函式
+        window.undoArrival = function(statueId) {
+            // 從陣列中移除
+            visitedStatues = visitedStatues.filter(id => id !== statueId);
+            localStorage.setItem('visitedOnePieceStatues', JSON.stringify(visitedStatues));
+
+            const statue = statues.find(s => s.id === statueId);
+            const marker = markers[statue.id];
+            
+            // 更新地圖標記樣式為未到達
+            const icon = L.divIcon({
+                className: '',
+                html: `<div class="statue-marker unvisited w-10 h-10">${statue.emoji}</div>`,
+                iconSize: [40, 40],
+                iconAnchor: [20, 20],
+                popupAnchor: [0, -20]
+            });
+            marker.setIcon(icon);
+            
+            // 重新綁定 Popup 並保持開啟
+            bindPopupContent(statue, marker, false);
+            marker.openPopup();
+
+            // 重新渲染 UI 列表
+            renderList();
+        };
+
+        function renderList() {
+            statueListEl.innerHTML = '';
+            let visitedCount = 0;
+
+            // 依照收集狀態與原始順序排序 (未收集在前，已收集在後)
+            const sortedStatues = [...statues].sort((a, b) => {
+                const aVisited = visitedStatues.includes(a.id);
+                const bVisited = visitedStatues.includes(b.id);
+                if (aVisited === bVisited) return 0;
+                return aVisited ? 1 : -1;
+            });
+
+            sortedStatues.forEach(statue => {
+                const isVisited = visitedStatues.includes(statue.id);
+                if (isVisited) visitedCount++;
+
+                const item = document.createElement('div');
+                item.className = `flex items-center justify-between p-3 rounded-xl border ${isVisited ? 'bg-gray-800 border-green-500/50' : 'bg-gray-700 border-gray-600'} transition cursor-pointer`;
+                
+                // 點擊列表項目，地圖平移到該銅像
+                item.onclick = () => {
+                    map.flyTo([statue.lat, statue.lng], 14, { duration: 1.5 });
+                    markers[statue.id].openPopup();
+                };
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <div class="text-3xl ${isVisited ? '' : 'grayscale opacity-50'}">${statue.emoji}</div>
+                        <div>
+                            <div class="font-bold text-gray-100">${statue.name}</div>
+                            <div class="text-xs text-gray-400">${statue.location}</div>
+                        </div>
+                    </div>
+                    <div class="text-xl">
+                        ${isVisited ? '✅' : '<span class="text-gray-500 text-sm border border-gray-500 rounded-full px-2 py-1">未達</span>'}
+                    </div>
+                `;
+                statueListEl.appendChild(item);
+            });
+
+            // 更新進度條與文字
+            progressText.innerText = `${visitedCount} / ${statues.length}`;
+            const percentage = (visitedCount / statues.length) * 100;
+            document.getElementById('progress-bar').style.width = `${percentage}%`;
+        }
+
+        // 彈窗控制
+        function showModal(statue) {
+            document.getElementById('modal-emoji').innerText = statue.emoji;
+            document.getElementById('modal-statue-name').innerText = statue.name;
+            const modal = document.getElementById('success-modal');
+            modal.classList.remove('hidden');
+            // 加入簡單的放大動畫
+            setTimeout(() => {
+                modal.children[0].classList.remove('scale-95');
+                modal.children[0].classList.add('scale-100');
+            }, 10);
+        }
+
+        window.closeModal = function() {
+            const modal = document.getElementById('success-modal');
+            modal.children[0].classList.remove('scale-100');
+            modal.children[0].classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        // 啟動按鈕事件
+        startBtn.addEventListener('click', () => {
+            // 解鎖音效限制
+            initAudio();
+            
+            // 隱藏歡迎畫面，顯示主應用
+            welcomeScreen.classList.add('hidden');
+            appContent.classList.remove('hidden');
+            appContent.classList.add('flex');
+            
+            // 初始化地圖與資料
+            initMap();
+            renderList();
+            
+            // 因為地圖容器剛顯示，需重新計算大小以防破版
+            setTimeout(() => { map.invalidateSize(); }, 100);
+
+            // 啟動 GPS 追蹤
+            startTracking();
+        });
+
+        // 底部抽屜互動邏輯
+        const bottomSheet = document.getElementById('bottom-sheet');
+        const sheetHeader = document.getElementById('sheet-header');
+        const expandIcon = document.getElementById('expand-icon');
+        let isSheetExpanded = false;
+        let touchStartY = 0;
+        let touchCurrentY = 0;
+
+        function toggleSheet(forceState) {
+            isSheetExpanded = forceState !== undefined ? forceState : !isSheetExpanded;
+            if (isSheetExpanded) {
+                bottomSheet.style.height = '80%';
+                expandIcon.innerText = '▼ 收合';
+            } else {
+                bottomSheet.style.height = '35%';
+                expandIcon.innerText = '▲ 展開';
+            }
+            // 等待 CSS 動畫結束後重新計算地圖大小，防止破版
+            setTimeout(() => {
+                if (map) map.invalidateSize();
+            }, 350);
+        }
+
+        // 點擊標題列切換展開/收合
+        sheetHeader.addEventListener('click', () => toggleSheet());
+
+        // 觸控滑動切換展開/收合
+        sheetHeader.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        sheetHeader.addEventListener('touchmove', (e) => {
+            touchCurrentY = e.touches[0].clientY;
+        }, { passive: true });
+
+        sheetHeader.addEventListener('touchend', (e) => {
+            if (!touchStartY || !touchCurrentY) return;
+            const diff = touchCurrentY - touchStartY;
+            // 向上滑動 (Y 座標變小)
+            if (diff < -30 && !isSheetExpanded) {
+                toggleSheet(true);
+            }
+            // 向下滑動 (Y 座標變大)
+            else if (diff > 30 && isSheetExpanded) {
+                toggleSheet(false);
+            }
+            touchStartY = 0;
+            touchCurrentY = 0;
+        });
+
+    </script>
+</body>
+</html>
